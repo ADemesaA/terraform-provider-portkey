@@ -449,3 +449,204 @@ resource "portkey_workspace" "test" {
 }
 `, name, creditLimit, alertThreshold)
 }
+
+// --- Icon tests ---
+
+// TestAccWorkspaceResource_withIcon tests creating a workspace with an icon,
+// verifying that the icon is stored separately and the name in state does not
+// include the icon prefix.
+func TestAccWorkspaceResource_withIcon(t *testing.T) {
+	rName := acctest.RandomWithPrefix("tf-acc-icon")
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			// Create with icon
+			{
+				Config: testAccWorkspaceResourceConfigWithIcon(rName, "🧪"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrSet("portkey_workspace.test", "id"),
+					resource.TestCheckResourceAttr("portkey_workspace.test", "name", rName),
+					resource.TestCheckResourceAttr("portkey_workspace.test", "icon", "🧪"),
+				),
+			},
+			// ImportState testing — icon and name differ after import because
+			// import uses backwards-compatible behavior (icon=null, full name).
+			// The subsequent plan step (re-applying the config) corrects this.
+			{
+				ResourceName:            "portkey_workspace.test",
+				ImportState:             true,
+				ImportStateVerify:       true,
+				ImportStateVerifyIgnore: []string{"created_at", "updated_at", "icon", "name"},
+			},
+			// Re-apply config after import — should converge to clean state
+			{
+				Config: testAccWorkspaceResourceConfigWithIcon(rName, "🧪"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("portkey_workspace.test", "name", rName),
+					resource.TestCheckResourceAttr("portkey_workspace.test", "icon", "🧪"),
+				),
+			},
+		},
+	})
+}
+
+// TestAccWorkspaceResource_withIcon_update tests changing the icon on a workspace.
+func TestAccWorkspaceResource_withIcon_update(t *testing.T) {
+	rName := acctest.RandomWithPrefix("tf-acc-iconup")
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			// Create with icon
+			{
+				Config: testAccWorkspaceResourceConfigWithIcon(rName, "🧪"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("portkey_workspace.test", "name", rName),
+					resource.TestCheckResourceAttr("portkey_workspace.test", "icon", "🧪"),
+				),
+			},
+			// Update to different icon
+			{
+				Config: testAccWorkspaceResourceConfigWithIcon(rName, "🔬"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("portkey_workspace.test", "name", rName),
+					resource.TestCheckResourceAttr("portkey_workspace.test", "icon", "🔬"),
+				),
+			},
+		},
+	})
+}
+
+// TestAccWorkspaceResource_withIcon_clear tests removing the icon from a workspace.
+func TestAccWorkspaceResource_withIcon_clear(t *testing.T) {
+	rName := acctest.RandomWithPrefix("tf-acc-iconclr")
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			// Create with icon
+			{
+				Config: testAccWorkspaceResourceConfigWithIcon(rName, "🧪"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("portkey_workspace.test", "name", rName),
+					resource.TestCheckResourceAttr("portkey_workspace.test", "icon", "🧪"),
+				),
+			},
+			// Clear icon by setting to empty string
+			{
+				Config: testAccWorkspaceResourceConfigWithIcon(rName, ""),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("portkey_workspace.test", "name", rName),
+					resource.TestCheckResourceAttr("portkey_workspace.test", "icon", ""),
+				),
+			},
+		},
+	})
+}
+
+// TestAccWorkspaceResource_withoutIcon_noChange verifies that workspaces created
+// WITHOUT an icon field behave identically to the pre-icon behavior — the name
+// includes any emoji prefix the API returns, and no stripping occurs.
+func TestAccWorkspaceResource_withoutIcon_noChange(t *testing.T) {
+	rName := acctest.RandomWithPrefix("tf-acc-noicon")
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			// Create without icon — backwards compatible behavior
+			{
+				Config: testAccWorkspaceResourceConfigMinimal(rName),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrSet("portkey_workspace.test", "id"),
+					resource.TestCheckResourceAttr("portkey_workspace.test", "name", rName),
+				),
+			},
+		},
+	})
+}
+
+// TestAccWorkspaceResource_emojiInName_noIcon verifies that creating a workspace
+// with an emoji in the name but no icon field does NOT cause flip-flop drift
+// on subsequent refreshes. The API auto-extracts the emoji into an icon field,
+// but the provider must NOT store that in state.
+func TestAccWorkspaceResource_emojiInName_noIcon(t *testing.T) {
+	rName := "🎯 " + acctest.RandomWithPrefix("tf-acc-emojiname")
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			// Create with emoji in name, no icon field
+			{
+				Config: testAccWorkspaceResourceConfigMinimal(rName),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrSet("portkey_workspace.test", "id"),
+					resource.TestCheckResourceAttr("portkey_workspace.test", "name", rName),
+				),
+			},
+			// Second plan/apply — must show NO changes (no flip-flop)
+			{
+				Config: testAccWorkspaceResourceConfigMinimal(rName),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("portkey_workspace.test", "name", rName),
+				),
+			},
+		},
+	})
+}
+
+// TestAccWorkspaceResource_optInToIcon tests the transition from emoji-in-name
+// (no icon field) to explicit icon management. The user changes their config
+// from name="🎯 Target" to name="Target", icon="🎯".
+func TestAccWorkspaceResource_optInToIcon(t *testing.T) {
+	rSuffix := acctest.RandomWithPrefix("tf-acc-optin")
+	emojiName := "🎯 " + rSuffix
+	cleanName := rSuffix
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			// Step 1: Create with emoji in name, no icon
+			{
+				Config: testAccWorkspaceResourceConfig(emojiName, "Target workspace"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("portkey_workspace.test", "name", emojiName),
+				),
+			},
+			// Step 2: Opt in — change to clean name + icon
+			{
+				Config: testAccWorkspaceResourceConfigWithIcon(cleanName, "🎯"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("portkey_workspace.test", "name", cleanName),
+					resource.TestCheckResourceAttr("portkey_workspace.test", "icon", "🎯"),
+				),
+			},
+			// Step 3: Verify stable — no drift on re-plan
+			{
+				Config: testAccWorkspaceResourceConfigWithIcon(cleanName, "🎯"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("portkey_workspace.test", "name", cleanName),
+					resource.TestCheckResourceAttr("portkey_workspace.test", "icon", "🎯"),
+				),
+			},
+		},
+	})
+}
+
+func testAccWorkspaceResourceConfigWithIcon(name, icon string) string {
+	return fmt.Sprintf(`
+provider "portkey" {}
+
+resource "portkey_workspace" "test" {
+  name        = %[1]q
+  icon        = %[2]q
+  description = "Workspace with icon"
+}
+`, name, icon)
+}
