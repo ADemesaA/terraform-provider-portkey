@@ -110,7 +110,19 @@ func buildWorkspaceLimitsFromPlan(ctx context.Context, plan *workspaceResourceMo
 	return usageLimits, rateLimits, diags
 }
 
-// workspaceUsageLimitsToTerraformList converts client workspace usage limits to a Terraform list
+// workspaceUsageLimitsToTerraformList converts client workspace usage limits to a Terraform list.
+//
+// `periodic_reset` is the only Optional string attribute in the nested object,
+// and the Portkey API returns "" (empty string) when the user did not set it
+// or explicitly nulled it. Storing that as types.StringValue("") would produce
+// a "Provider produced inconsistent result after apply" error whenever an HCL
+// plan said `periodic_reset = null`, because the plan value (null) and the
+// post-apply state value ("") are not equivalent. The fix maps the API's
+// empty string back to types.StringNull() so plan and state agree.
+//
+// `type` is schema-Required at the nested level, so we trust the API to echo
+// back what was set (mirroring apiKeyRateLimitsToTerraformList, which also
+// wraps Required fields unconditionally).
 func workspaceUsageLimitsToTerraformList(limits []client.IntegrationWorkspaceUsageLimits) (types.List, diag.Diagnostics) {
 	var diags diag.Diagnostics
 
@@ -122,9 +134,12 @@ func workspaceUsageLimitsToTerraformList(limits []client.IntegrationWorkspaceUsa
 	for _, ul := range limits {
 		attrs := map[string]attr.Value{
 			"type":            types.StringValue(ul.Type),
-			"periodic_reset":  types.StringValue(ul.PeriodicReset),
 			"credit_limit":    types.Int64Null(),
 			"alert_threshold": types.Int64Null(),
+			"periodic_reset":  types.StringNull(),
+		}
+		if ul.PeriodicReset != "" {
+			attrs["periodic_reset"] = types.StringValue(ul.PeriodicReset)
 		}
 		if ul.CreditLimit != nil {
 			attrs["credit_limit"] = types.Int64Value(int64(*ul.CreditLimit))
@@ -146,7 +161,10 @@ func workspaceUsageLimitsToTerraformList(limits []client.IntegrationWorkspaceUsa
 	return list, diags
 }
 
-// workspaceRateLimitsToTerraformList converts client workspace rate limits to a Terraform list
+// workspaceRateLimitsToTerraformList converts client workspace rate limits to a Terraform list.
+// `type` and `unit` are wrapped directly from the API response. `value` is
+// still handled as nullable here to match the client model and avoid changing
+// behavior if the API omits it.
 func workspaceRateLimitsToTerraformList(limits []client.IntegrationWorkspaceRateLimits) (types.List, diag.Diagnostics) {
 	var diags diag.Diagnostics
 

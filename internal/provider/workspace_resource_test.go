@@ -378,3 +378,74 @@ func TestAccWorkspaceResource_clearRateLimits(t *testing.T) {
 		},
 	})
 }
+
+// TestAccWorkspaceResource_usageLimitsExplicitNullPeriodicReset is a
+// regression test for a "Provider produced inconsistent result after apply"
+// bug where the workspace usage_limits helper unconditionally wrapped the
+// API's `periodic_reset` value in types.StringValue, including when the API
+// returned "" for an unset field. With `periodic_reset = null` in HCL the
+// plan said null but the post-apply state held cty.StringVal(""), tripping
+// Terraform's consistency check.
+//
+// The test exercises Create AND Update (the path most users hit) AND a
+// PlanOnly step to confirm no spurious diffs after rotation through Read.
+func TestAccWorkspaceResource_usageLimitsExplicitNullPeriodicReset(t *testing.T) {
+	rName := acctest.RandomWithPrefix("tf-acc-wsulnp")
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			// Step 1: Create with periodic_reset explicitly null.
+			{
+				Config: testAccWorkspaceResourceConfigUsageLimitsNullPeriodicReset(rName, 500, 400),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("portkey_workspace.test", "usage_limits.#", "1"),
+					resource.TestCheckResourceAttr("portkey_workspace.test", "usage_limits.0.type", "cost"),
+					resource.TestCheckResourceAttr("portkey_workspace.test", "usage_limits.0.credit_limit", "500"),
+					resource.TestCheckResourceAttr("portkey_workspace.test", "usage_limits.0.alert_threshold", "400"),
+					// The bug: this attribute used to come back as "" instead of being absent.
+					resource.TestCheckNoResourceAttr("portkey_workspace.test", "usage_limits.0.periodic_reset"),
+				),
+			},
+			// Step 2: Re-apply the same config — must produce an empty plan.
+			// Confirms Read does not flip null → "" and re-introduce drift.
+			{
+				Config:   testAccWorkspaceResourceConfigUsageLimitsNullPeriodicReset(rName, 500, 400),
+				PlanOnly: true,
+			},
+			// Step 3: Update credit_limit/alert_threshold while keeping
+			// periodic_reset = null. Exercises the Update → Read path that
+			// triggered the original "inconsistent result" report.
+			{
+				Config: testAccWorkspaceResourceConfigUsageLimitsNullPeriodicReset(rName, 1000, 800),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("portkey_workspace.test", "usage_limits.0.credit_limit", "1000"),
+					resource.TestCheckResourceAttr("portkey_workspace.test", "usage_limits.0.alert_threshold", "800"),
+					resource.TestCheckNoResourceAttr("portkey_workspace.test", "usage_limits.0.periodic_reset"),
+				),
+			},
+		},
+	})
+}
+
+// testAccWorkspaceResourceConfigUsageLimitsNullPeriodicReset is the user-
+// reported config that triggered the bug: usage_limits set, but
+// periodic_reset explicitly nulled to opt out of monthly/weekly cadence.
+func testAccWorkspaceResourceConfigUsageLimitsNullPeriodicReset(name string, creditLimit, alertThreshold int) string {
+	return fmt.Sprintf(`
+provider "portkey" {}
+
+resource "portkey_workspace" "test" {
+  name        = %[1]q
+  description = "Workspace with explicit-null periodic_reset"
+
+  usage_limits = [{
+    type            = "cost"
+    credit_limit    = %[2]d
+    alert_threshold = %[3]d
+    periodic_reset  = null
+  }]
+}
+`, name, creditLimit, alertThreshold)
+}

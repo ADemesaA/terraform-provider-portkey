@@ -18,7 +18,7 @@
 
 | Resource | Create | Read | Update | Delete | Import | API Status | Test Status |
 |----------|:------:|:----:|:------:|:------:|:------:|------------|-------------|
-| `portkey_workspace` | ✅ | ✅ | ✅ | ⚠️ | ✅ | Delete requires name in body | ⚠️ 7 tests, delete blocked by backend |
+| `portkey_workspace` | ✅ | ✅ | ✅ | ⚠️ | ✅ | Delete requires name in body | ⚠️ 10 tests, delete blocked by backend |
 | `portkey_workspace_member` | ✅ | ⚠️ | ✅ | ✅ | ✅ | getMember API has issues | Skipped |
 | `portkey_user_invite` | ✅ | ✅ | ❌ | ✅ | ✅ | Update API doesn't exist | ✅ Passing |
 | `portkey_integration` | ✅ | ✅ | ✅ | ✅ | ✅ | Full CRUD working | ✅ Passing |
