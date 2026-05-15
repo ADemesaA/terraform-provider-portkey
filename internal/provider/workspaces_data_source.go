@@ -35,6 +35,7 @@ type workspacesDataSourceModel struct {
 type workspaceModel struct {
 	ID          types.String `tfsdk:"id"`
 	Name        types.String `tfsdk:"name"`
+	Icon        types.String `tfsdk:"icon"`
 	Description types.String `tfsdk:"description"`
 	UsageLimits types.List   `tfsdk:"usage_limits"`
 	RateLimits  types.List   `tfsdk:"rate_limits"`
@@ -63,7 +64,11 @@ func (d *workspacesDataSource) Schema(_ context.Context, _ datasource.SchemaRequ
 							Computed:    true,
 						},
 						"name": schema.StringAttribute{
-							Description: "Name of the workspace.",
+							Description: "Name of the workspace. Includes the icon emoji prefix if an icon is set.",
+							Computed:    true,
+						},
+						"icon": schema.StringAttribute{
+							Description: "Emoji icon for the workspace, if set.",
 							Computed:    true,
 						},
 						"description": schema.StringAttribute{
@@ -195,9 +200,18 @@ func (d *workspacesDataSource) Read(ctx context.Context, req datasource.ReadRequ
 			return
 		}
 
+		// Handle icon
+		var iconVal types.String
+		if workspace.Icon != "" {
+			iconVal = types.StringValue(workspace.Icon)
+		} else {
+			iconVal = types.StringNull()
+		}
+
 		workspaceState := workspaceModel{
 			ID:          types.StringValue(workspace.ID),
 			Name:        types.StringValue(workspace.Name),
+			Icon:        iconVal,
 			Description: types.StringValue(workspace.Description),
 			UsageLimits: ulList,
 			RateLimits:  rlList,
