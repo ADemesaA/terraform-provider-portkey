@@ -29,6 +29,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `client.ClientConfig` struct for callers that need to set retry
   behavior. The existing `client.NewClient(baseURL, apiKey)` is retained
   as a thin wrapper for backwards compatibility.
+- **`portkey_scim_workspace_mapping` resource** and
+  **`portkey_scim_workspace_mappings` data source** — manage SCIM-group →
+  workspace + role bindings via the Portkey SCIM Workspace Mappings Admin
+  API. Supports binding either by `scim_group_name` (pre-create before
+  the identity provider pushes the group) or by `scim_group_id` (bind to
+  an existing SCIM group). Roles: `admin`, `member`, `manager`. The
+  Portkey API has no update endpoint for SCIM mappings, so changing any
+  field forces resource replacement (RequiresReplace). These endpoints
+  are currently served from `/v2/scim/workspaces` per Portkey support
+  while the documented `/v1` routing is being fixed on their side; the
+  client transparently swaps `/v1` for `/v2` in the configured BaseURL
+  for SCIM calls only.
 
 ## [0.2.17] - 2026-04-10
 
