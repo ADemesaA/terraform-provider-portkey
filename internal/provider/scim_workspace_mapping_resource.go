@@ -259,7 +259,7 @@ func (r *scimWorkspaceMappingResource) ImportState(ctx context.Context, req reso
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		resp.Diagnostics.AddError(
 			"Invalid Import ID",
-			"Import ID must be in the format: workspace_id/mapping_id (e.g. ws-claude-7e497d/a1b2c3d4-...).",
+			"Import ID must be in the format: workspace_id/mapping_id (e.g. ws-example-abcd12/a1b2c3d4-...).",
 		)
 		return
 	}

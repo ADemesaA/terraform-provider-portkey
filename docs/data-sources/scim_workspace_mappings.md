@@ -17,8 +17,8 @@ Fetches Portkey SCIM workspace mappings, optionally filtered by workspace, SCIM 
 data "portkey_scim_workspace_mappings" "all" {}
 
 # Mappings for one workspace.
-data "portkey_scim_workspace_mappings" "claude_code" {
-  workspace_id = portkey_workspace.claude_code.id
+data "portkey_scim_workspace_mappings" "example" {
+  workspace_id = portkey_workspace.example.id
 }
 
 # All admin-role mappings.
