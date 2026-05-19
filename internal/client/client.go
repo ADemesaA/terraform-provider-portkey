@@ -2800,7 +2800,11 @@ func (c *Client) ListScimWorkspaceMappings(ctx context.Context, opts ListScimWor
 		return nil, err
 	}
 
+	// The list endpoint returns items under the "mappings" key (not "data",
+	// which is the convention for other Admin API list endpoints). Accept
+	// both defensively in case Portkey ever normalizes the response shape.
 	var response struct {
+		Mappings   []ScimWorkspaceMapping `json:"mappings"`
 		Data       []ScimWorkspaceMapping `json:"data"`
 		TotalCount int                    `json:"total_count"`
 	}
@@ -2808,6 +2812,9 @@ func (c *Client) ListScimWorkspaceMappings(ctx context.Context, opts ListScimWor
 		return nil, fmt.Errorf("error unmarshaling response: %w", err)
 	}
 
+	if len(response.Mappings) > 0 {
+		return response.Mappings, nil
+	}
 	return response.Data, nil
 }
 

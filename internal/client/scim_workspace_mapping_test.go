@@ -144,7 +144,7 @@ func TestListScimWorkspaceMappings_WithFilters(t *testing.T) {
 		capturedRawQuery = r.URL.RawQuery
 		_, _ = w.Write([]byte(`{
 			"total_count": 2,
-			"data": [
+			"mappings": [
 				{"id":"map-1","workspace_id":"ws-example-abcd12","scim_group":"A","scim_group_id":"sg-1","role":"admin"},
 				{"id":"map-2","workspace_id":"ws-example-abcd12","scim_group":"B","scim_group_id":"sg-2","role":"member"}
 			]
@@ -183,7 +183,7 @@ func TestListScimWorkspaceMappings_NoFilters(t *testing.T) {
 	var capturedRawQuery string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedRawQuery = r.URL.RawQuery
-		_, _ = w.Write([]byte(`{"total_count":0,"data":[]}`))
+		_, _ = w.Write([]byte(`{"total_count":0,"mappings":[]}`))
 	}))
 	t.Cleanup(srv.Close)
 

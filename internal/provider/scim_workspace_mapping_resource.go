@@ -164,7 +164,12 @@ func (r *scimWorkspaceMappingResource) Create(ctx context.Context, req resource.
 	}
 
 	plan.ID = types.StringValue(mapping.ID)
-	plan.WorkspaceID = types.StringValue(mapping.WorkspaceID)
+	// workspace_id is preserved as the user authored it. The Portkey API
+	// normalizes the value on the way back (e.g. slug "ws-foo-abcd12" comes
+	// back as the workspace's UUID), which trips the framework's post-apply
+	// consistency check because workspace_id is Required (not Computed).
+	// Keeping the planned value sidesteps that without forcing the user to
+	// write the UUID by hand.
 	plan.Role = types.StringValue(mapping.Role)
 	plan.ScimGroupID = types.StringValue(mapping.ScimGroupID)
 	plan.ScimGroup = types.StringValue(mapping.ScimGroup)
@@ -185,15 +190,16 @@ func (r *scimWorkspaceMappingResource) Read(ctx context.Context, req resource.Re
 		return
 	}
 
-	// The Portkey API has no GET-by-id for SCIM mappings; filter the list
-	// by workspace and find our entry by mapping ID.
-	mappings, err := r.client.ListScimWorkspaceMappings(ctx, client.ListScimWorkspaceMappingsOptions{
-		WorkspaceID: state.WorkspaceID.ValueString(),
-	})
+	// The Portkey API has no GET-by-id for SCIM mappings. We can't filter
+	// the list by workspace_id either: the API's filter only matches the
+	// workspace's UUID form, while state may hold the slug the user
+	// authored. Fetching the unfiltered list is fine — the SCIM mappings
+	// list is small (a few hundred entries at most across the org).
+	mappings, err := r.client.ListScimWorkspaceMappings(ctx, client.ListScimWorkspaceMappingsOptions{})
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Error reading SCIM workspace mapping",
-			"Could not read SCIM workspace mappings for workspace "+state.WorkspaceID.ValueString()+": "+err.Error(),
+			"Could not list SCIM workspace mappings: "+err.Error(),
 		)
 		return
 	}
@@ -204,7 +210,9 @@ func (r *scimWorkspaceMappingResource) Read(ctx context.Context, req resource.Re
 		if m.ID != stateID {
 			continue
 		}
-		state.WorkspaceID = types.StringValue(m.WorkspaceID)
+		// workspace_id is preserved verbatim from state (the API
+		// returns the UUID form regardless of which form the user
+		// authored; rewriting it here would surface as drift).
 		state.Role = types.StringValue(m.Role)
 		state.ScimGroupID = types.StringValue(m.ScimGroupID)
 		state.ScimGroup = types.StringValue(m.ScimGroup)

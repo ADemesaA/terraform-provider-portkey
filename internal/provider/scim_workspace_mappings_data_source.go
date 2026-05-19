@@ -124,8 +124,12 @@ func (d *scimWorkspaceMappingsDataSource) Read(ctx context.Context, req datasour
 		return
 	}
 
+	// The API's workspace_id filter only matches the workspace's UUID form,
+	// not the slug. Users typically pass `portkey_workspace.foo.id` (slug)
+	// here, so omit that filter from the API call and post-filter on
+	// workspace_id in Go. ScimGroupID and Role are UUIDs / fixed strings and
+	// are safe to push to the API.
 	mappings, err := d.client.ListScimWorkspaceMappings(ctx, client.ListScimWorkspaceMappingsOptions{
-		WorkspaceID: config.WorkspaceID.ValueString(),
 		ScimGroupID: config.ScimGroupID.ValueString(),
 		Role:        config.Role.ValueString(),
 	})
@@ -135,6 +139,31 @@ func (d *scimWorkspaceMappingsDataSource) Read(ctx context.Context, req datasour
 			"Could not list SCIM workspace mappings: "+err.Error(),
 		)
 		return
+	}
+
+	if wsFilter := config.WorkspaceID.ValueString(); wsFilter != "" {
+		// Try a couple of approaches to match slug vs UUID. First the
+		// raw equality (covers UUID-form callers); then look up the
+		// workspace via the admin API to resolve slug → UUID and match
+		// on that. Falling back to the lookup avoids surfacing an empty
+		// list when the user passes the slug that portkey_workspace.id
+		// produces.
+		filtered := make([]client.ScimWorkspaceMapping, 0, len(mappings))
+		for _, m := range mappings {
+			if m.WorkspaceID == wsFilter {
+				filtered = append(filtered, m)
+			}
+		}
+		if len(filtered) == 0 {
+			if ws, lookupErr := d.client.GetWorkspace(ctx, wsFilter); lookupErr == nil && ws != nil {
+				for _, m := range mappings {
+					if m.WorkspaceID == ws.ID || m.WorkspaceID == ws.Slug {
+						filtered = append(filtered, m)
+					}
+				}
+			}
+		}
+		mappings = filtered
 	}
 
 	state := scimWorkspaceMappingsDataSourceModel{
