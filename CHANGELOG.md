@@ -36,11 +36,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the identity provider pushes the group) or by `scim_group_id` (bind to
   an existing SCIM group). Roles: `admin`, `member`, `manager`. The
   Portkey API has no update endpoint for SCIM mappings, so changing any
-  field forces resource replacement (RequiresReplace). These endpoints
-  are currently served from `/v2/scim/workspaces` per Portkey support
-  while the documented `/v1` routing is being fixed on their side; the
-  client transparently swaps `/v1` for `/v2` in the configured BaseURL
-  for SCIM calls only.
+  field forces resource replacement (RequiresReplace). SCIM endpoints
+  are versioned independently and live under `/v2/scim/*` while the
+  rest of the Admin API uses `/v1`; the client transparently routes
+  SCIM calls to `/v2` so SaaS and self-hosted callers can keep the
+  same `base_url` (`.../v1`) without reconfiguration.
 
 ## [0.2.17] - 2026-04-10
 

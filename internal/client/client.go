@@ -129,8 +129,8 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 	}
 
 	// Allow callers to pass an absolute URL (used by endpoints that live
-	// outside the configured BaseURL, e.g. the SCIM workspace mappings
-	// endpoints currently served from /v2 while Portkey fixes /v1 routing).
+	// outside the configured BaseURL — e.g. SCIM endpoints are versioned
+	// independently under /v2 while the rest of the Admin API uses /v1).
 	url := path
 	if !strings.HasPrefix(path, "http://") && !strings.HasPrefix(path, "https://") {
 		url = c.BaseURL + path
@@ -2742,11 +2742,12 @@ type CreateScimWorkspaceMappingRequest struct {
 }
 
 // scimWorkspacesURL returns the absolute URL for the SCIM workspace mappings
-// endpoints. Portkey support directed us to /v2 while they fix the /v1
-// routing on their side; the rest of the Admin API continues to live under
-// /v1. The BaseURL is expected to end with /v1 (the provider default and
-// most self-hosted setups); the /v1 suffix is stripped if present so the
-// version swap works without forcing operators to reconfigure BaseURL.
+// endpoints. SCIM endpoints are versioned independently from the rest of the
+// Admin API and live under /v2/scim/*, while everything else uses /v1. The
+// configured BaseURL is expected to end with /v1 (the provider default and
+// most self-hosted setups); the /v1 suffix is stripped here if present so
+// SaaS and self-hosted callers can use the same BaseURL without
+// reconfiguration.
 func (c *Client) scimWorkspacesURL(suffix string) string {
 	base := strings.TrimSuffix(c.BaseURL, "/v1")
 	return base + "/v2/scim/workspaces" + suffix
