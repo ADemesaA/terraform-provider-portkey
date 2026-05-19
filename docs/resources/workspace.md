@@ -23,6 +23,20 @@ resource "portkey_workspace" "basic" {
 }
 ```
 
+### With Icon
+
+```terraform
+resource "portkey_workspace" "with_icon" {
+  name        = "Production"
+  icon        = "🚀"
+  description = "Production workspace"
+}
+```
+
+When `icon` is set, the Portkey UI displays the emoji alongside the workspace name. The API prepends the icon to the name in responses (e.g. the name appears as "🚀 Production" in the Portkey dashboard), but the provider handles this transparently — `name` in Terraform state always reflects the clean name you configured.
+
+~> **Note:** If you omit `icon` from your config, the provider preserves backwards-compatible behavior: the `name` attribute includes any emoji prefix the API returns, exactly as it did before this feature was added.
+
 ### With Usage Limits and Rate Limits
 
 ```terraform
@@ -52,11 +66,12 @@ To clear limits, simply remove the `usage_limits` or `rate_limits` blocks from y
 
 ### Required
 
-- `name` (String) Name of the workspace.
+- `name` (String) Name of the workspace. When `icon` is set, the Portkey API prepends the icon emoji to the name in responses; the provider strips it automatically so this attribute always reflects the clean name you configured.
 
 ### Optional
 
 - `description` (String) Description of the workspace.
+- `icon` (String) Emoji icon for the workspace. When set, the Portkey UI displays this icon alongside the workspace name. The API prepends the icon to the name in responses; the provider handles this transparently. Set to an empty string to clear the icon.
 - `metadata` (Map of String) Custom metadata to attach to the workspace. This metadata can be used for tracking, observability, and identifying workspaces. All API keys created in this workspace will inherit this metadata by default.
 - `rate_limits` (Attributes List) Rate limits for this workspace. (see [below for nested schema](#nestedatt--rate_limits))
 - `usage_limits` (Attributes List) Usage limits for this workspace. (see [below for nested schema](#nestedatt--usage_limits))

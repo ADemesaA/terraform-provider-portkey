@@ -171,6 +171,7 @@ type Workspace struct {
 	ID          string                            `json:"id"`
 	Slug        string                            `json:"slug,omitempty"`
 	Name        string                            `json:"name"`
+	Icon        string                            `json:"icon,omitempty"`
 	Description string                            `json:"description,omitempty"`
 	Defaults    *WorkspaceDefaults                `json:"defaults,omitempty"`
 	RateLimits  []IntegrationWorkspaceRateLimits  `json:"rate_limits,omitempty"`
@@ -182,6 +183,7 @@ type Workspace struct {
 // CreateWorkspaceRequest represents the request to create a workspace
 type CreateWorkspaceRequest struct {
 	Name        string                            `json:"name"`
+	Icon        string                            `json:"icon,omitempty"`
 	Description string                            `json:"description,omitempty"`
 	Defaults    *WorkspaceDefaults                `json:"defaults,omitempty"`
 	RateLimits  []IntegrationWorkspaceRateLimits  `json:"rate_limits,omitempty"`
@@ -193,8 +195,17 @@ type CreateWorkspaceRequest struct {
 //   - nil: field omitted from JSON (no change to existing limits)
 //   - client.JSONNull: sends "usage_limits": null (clears limits)
 //   - marshaled JSON: sends the new limits array
+//
+// Icon uses json.RawMessage for three-state semantics (same pattern as limits):
+//   - nil: field omitted from JSON (no change to existing icon)
+//   - json.RawMessage(`""`): sends "icon": "" (clears icon)
+//   - json.RawMessage(`"🚪"`): sends "icon": "🚪" (sets icon)
+//
+// We cannot use *string with omitempty because Go's json encoder treats
+// a pointer to "" as empty, omitting the field — which prevents clearing.
 type UpdateWorkspaceRequest struct {
 	Name        string             `json:"name,omitempty"`
+	Icon        json.RawMessage    `json:"icon,omitempty"`
 	Description string             `json:"description,omitempty"`
 	Defaults    *WorkspaceDefaults `json:"defaults,omitempty"`
 	RateLimits  json.RawMessage    `json:"rate_limits,omitempty"`

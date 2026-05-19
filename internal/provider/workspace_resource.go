@@ -2,7 +2,9 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
@@ -37,12 +39,28 @@ type workspaceResource struct {
 type workspaceResourceModel struct {
 	ID          types.String `tfsdk:"id"`
 	Name        types.String `tfsdk:"name"`
+	Icon        types.String `tfsdk:"icon"`
 	Description types.String `tfsdk:"description"`
 	UsageLimits types.List   `tfsdk:"usage_limits"`
 	RateLimits  types.List   `tfsdk:"rate_limits"`
 	Metadata    types.Map    `tfsdk:"metadata"`
 	CreatedAt   types.String `tfsdk:"created_at"`
 	UpdatedAt   types.String `tfsdk:"updated_at"`
+}
+
+// stripIconPrefix removes the icon emoji prefix from a workspace name.
+// The Portkey API prepends the icon to the name in GET responses (e.g.
+// icon="🚀", name="🚀 Production"). This function strips it so state stores
+// the clean name the user configured.
+func stripIconPrefix(name, icon string) string {
+	if icon == "" {
+		return name
+	}
+	prefix := icon + " "
+	if strings.HasPrefix(name, prefix) {
+		return strings.TrimPrefix(name, prefix)
+	}
+	return name
 }
 
 // Metadata returns the resource type name.
@@ -63,8 +81,12 @@ func (r *workspaceResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 				},
 			},
 			"name": schema.StringAttribute{
-				Description: "Name of the workspace.",
+				Description: "Name of the workspace. When icon is set, the Portkey API prepends the icon emoji to the name in responses; the provider strips it automatically so this attribute always reflects the clean name you configured.",
 				Required:    true,
+			},
+			"icon": schema.StringAttribute{
+				Description: "Emoji icon for the workspace. When set, the Portkey UI displays this icon alongside the workspace name. The API prepends the icon to the name in responses; the provider strips the prefix automatically so the name attribute always reflects the clean name you configured. Set to an empty string to clear the icon. When omitted, the provider preserves backwards-compatible behavior (emoji stays in name if present).",
+				Optional:    true,
 			},
 			"description": schema.StringAttribute{
 				Description: "Description of the workspace.",
@@ -184,6 +206,11 @@ func (r *workspaceResource) Create(ctx context.Context, req resource.CreateReque
 		Description: plan.Description.ValueString(),
 	}
 
+	// Include icon if set in config
+	if !plan.Icon.IsNull() && !plan.Icon.IsUnknown() {
+		createReq.Icon = plan.Icon.ValueString()
+	}
+
 	// Build limits from plan
 	usageLimits, rateLimits, limitDiags := buildWorkspaceLimitsFromPlan(ctx, &plan)
 	resp.Diagnostics.Append(limitDiags...)
@@ -219,6 +246,21 @@ func (r *workspaceResource) Create(ctx context.Context, req resource.CreateReque
 	plan.ID = types.StringValue(workspace.ID)
 	plan.CreatedAt = types.StringValue(workspace.CreatedAt.Format("2006-01-02T15:04:05Z07:00"))
 	plan.UpdatedAt = types.StringValue(workspace.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"))
+
+	// Handle icon and name from API response after create.
+	// Only strip the icon prefix when the user explicitly set icon in config.
+	// If icon was not set, preserve today's behavior: store the full API name
+	// as-is and keep icon null — even if the API auto-extracted one from an
+	// emoji in the name.
+	if !plan.Icon.IsNull() && !plan.Icon.IsUnknown() {
+		// User explicitly set icon — strip prefix from returned name
+		plan.Name = types.StringValue(stripIconPrefix(workspace.Name, plan.Icon.ValueString()))
+	} else {
+		// User did NOT set icon — backwards compatible. Do NOT store the
+		// API's auto-extracted icon in state; that would cause Read to
+		// misinterpret it as user-managed and start stripping on refresh.
+		plan.Icon = types.StringNull()
+	}
 
 	// Handle usage_limits: trust plan values when user specified them, since
 	// the API has eventual consistency and may not return limits immediately.
@@ -285,8 +327,40 @@ func (r *workspaceResource) Read(ctx context.Context, req resource.ReadRequest, 
 		return
 	}
 
-	// Overwrite items with refreshed state
-	state.Name = types.StringValue(workspace.Name)
+	// Handle icon and name from API response.
+	// The API prepends the icon to the name (e.g. icon="🚀", name="🚀 Production").
+	//
+	// Backwards compatibility contract:
+	// - If the user has NOT opted into icon management (state.Icon is null),
+	//   preserve today's behavior: store the full API name as-is, keep icon null.
+	// - If the user HAS opted in (state.Icon is non-null — set via Create or
+	//   Update with an explicit icon value), strip the prefix and track the icon.
+	//
+	// We detect opt-in by checking if state.Icon is non-null. This works because:
+	// - Create only sets icon to non-null when the user's plan has icon set
+	// - Update only sets icon to non-null when the user's config has icon set
+	// - ImportState uses passthrough (icon starts null), so Read preserves
+	//   backwards-compat on import
+	// - The key invariant: icon transitions from null to non-null ONLY in
+	//   Create/Update when the user explicitly configures it.
+	userManagesIcon := !state.Icon.IsNull()
+	if userManagesIcon {
+		// User opted in — track icon and strip prefix from name.
+		if workspace.Icon != "" {
+			state.Icon = types.StringValue(workspace.Icon)
+			state.Name = types.StringValue(stripIconPrefix(workspace.Name, workspace.Icon))
+		} else {
+			state.Icon = types.StringValue("")
+			state.Name = types.StringValue(workspace.Name)
+		}
+	} else {
+		// User has NOT opted in — backwards compatible behavior.
+		// Store full API name (with emoji prefix) as-is. Keep icon null.
+		state.Name = types.StringValue(workspace.Name)
+		// Do NOT set state.Icon — keep it null so we don't accidentally
+		// trigger icon management on the next Read cycle.
+	}
+
 	// Only set description if it's not empty - preserve null vs empty distinction
 	if workspace.Description != "" {
 		state.Description = types.StringValue(workspace.Description)
@@ -359,6 +433,18 @@ func (r *workspaceResource) Update(ctx context.Context, req resource.UpdateReque
 		Description: plan.Description.ValueString(),
 	}
 
+	// Handle icon: use config (not plan) to detect user intent.
+	// Serialize as json.RawMessage so clearing (icon="") actually sends
+	// "icon":"" in the JSON body rather than being omitted by omitempty.
+	if !config.Icon.IsNull() {
+		iconJSON, err := json.Marshal(config.Icon.ValueString())
+		if err != nil {
+			resp.Diagnostics.AddError("Error serializing icon", err.Error())
+			return
+		}
+		updateReq.Icon = iconJSON
+	}
+
 	// Build limits as json.RawMessage for three-state semantics (omit/null/value).
 	// Use config (not plan) so IsNull() correctly detects user clearing intent.
 	usageRaw, rateRaw, limitDiags := marshalWorkspaceLimitsForUpdate(ctx, &config)
@@ -394,6 +480,18 @@ func (r *workspaceResource) Update(ctx context.Context, req resource.UpdateReque
 	// Map response body to schema and populate Computed attribute values
 	plan.CreatedAt = types.StringValue(workspace.CreatedAt.Format("2006-01-02T15:04:05Z07:00"))
 	plan.UpdatedAt = types.StringValue(workspace.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"))
+
+	// Handle icon and name from API response after update.
+	// Same logic as Create: only strip when user explicitly set icon.
+	if !config.Icon.IsNull() {
+		iconVal := config.Icon.ValueString()
+		plan.Icon = types.StringValue(iconVal)
+		plan.Name = types.StringValue(stripIconPrefix(workspace.Name, iconVal))
+	} else {
+		// User did NOT set icon — backwards compatible. Keep icon null,
+		// preserve full API name (may include emoji prefix).
+		plan.Icon = types.StringNull()
+	}
 
 	// Handle usage_limits: if we sent null to clear, trust that (API has
 	// eventual consistency and may return stale data). Otherwise read from API.
@@ -452,7 +550,8 @@ func (r *workspaceResource) Delete(ctx context.Context, req resource.DeleteReque
 		return
 	}
 
-	// Delete existing workspace (API requires name in body as confirmation)
+	// Delete existing workspace (API requires name in body as confirmation).
+	// State stores the clean name (without icon prefix), which is what the API expects.
 	err := r.client.DeleteWorkspace(ctx, state.ID.ValueString(), state.Name.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError(
@@ -465,7 +564,10 @@ func (r *workspaceResource) Delete(ctx context.Context, req resource.DeleteReque
 }
 
 // ImportState imports the resource state.
+// We use simple passthrough — Read will populate all fields. The icon field
+// starts as null in state after import, which triggers backwards-compatible
+// behavior in Read (no name stripping). Users who want icon management add
+// the icon attribute to their config after import.
 func (r *workspaceResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	// Retrieve import ID and save to id attribute
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
