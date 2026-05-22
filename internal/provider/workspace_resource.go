@@ -493,13 +493,30 @@ func (r *workspaceResource) Update(ctx context.Context, req resource.UpdateReque
 		plan.Icon = types.StringNull()
 	}
 
-	// Handle usage_limits: if we sent null to clear, trust that (API has
-	// eventual consistency and may return stale data). Otherwise read from API.
-	// Use config (not plan) because Optional+Computed plan values are Unknown,
-	// not Null, when user removes the block.
+	// Handle usage_limits after Update — three cases:
+	//   1. config.UsageLimits is null → user removed the block. We already
+	//      sent null on the wire to clear; mirror that as an empty list in
+	//      state. (Use config — not plan — because Optional+Computed plan
+	//      values become Unknown, not Null, when the user removes the block,
+	//      so the API-read branch below would otherwise take effect and
+	//      could write stale data.)
+	//   2. plan has a known value (empty or non-empty) → trust the plan.
+	//      The Portkey API has eventual consistency and the PUT response
+	//      may not yet echo the newly-set values, which previously surfaced
+	//      as "Provider produced inconsistent result after apply" when a
+	//      user changed credit_limit/alert_threshold OR explicitly set
+	//      usage_limits = [] (e.g. via variable indirection) to clear.
+	//      This mirrors the Create handler above. The next Read reconciles
+	//      real API state.
+	//   3. otherwise (plan Unknown) → read back from the API.
+	//
+	// The Create/Update branches are kept parallel deliberately rather than
+	// factored into a helper, because Update has the extra null-clearing
+	// case (#1) that Create does not.
 	if config.UsageLimits.IsNull() {
-		// We sent null to clear — set state to empty list to match cleared state
 		plan.UsageLimits = types.ListValueMust(workspaceUsageLimitsObjectType, []attr.Value{})
+	} else if !plan.UsageLimits.IsUnknown() {
+		// Keep plan values — API response may be stale.
 	} else {
 		ulList, ulDiags := workspaceUsageLimitsToTerraformList(workspace.UsageLimits)
 		resp.Diagnostics.Append(ulDiags...)
@@ -509,9 +526,11 @@ func (r *workspaceResource) Update(ctx context.Context, req resource.UpdateReque
 		plan.UsageLimits = ulList
 	}
 
-	// Handle rate_limits — same approach
+	// Handle rate_limits — same three cases as usage_limits above.
 	if config.RateLimits.IsNull() {
 		plan.RateLimits = types.ListValueMust(workspaceRateLimitsObjectType, []attr.Value{})
+	} else if !plan.RateLimits.IsUnknown() {
+		// Keep plan values — API response may be stale.
 	} else {
 		rlList, rlDiags := workspaceRateLimitsToTerraformList(workspace.RateLimits)
 		resp.Diagnostics.Append(rlDiags...)

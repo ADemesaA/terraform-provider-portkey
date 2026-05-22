@@ -241,7 +241,12 @@ func TestAccWorkspaceResource_withUsageLimits(t *testing.T) {
 				ImportStateVerify:       true,
 				ImportStateVerifyIgnore: []string{"created_at", "updated_at"},
 			},
-			// Update usage_limits
+			// Update usage_limits — changes credit_limit and alert_threshold.
+			// This is the exact path that used to fail with "Provider produced
+			// inconsistent result after apply" when the Portkey API briefly
+			// returned stale values in the PUT response. The Update handler
+			// now trusts the plan; the post-apply state must match the new
+			// values without depending on API echo timing.
 			{
 				Config: testAccWorkspaceResourceConfigWithUsageLimits(rName+"-upd", 1000, 800),
 				Check: resource.ComposeAggregateTestCheckFunc(
@@ -249,6 +254,13 @@ func TestAccWorkspaceResource_withUsageLimits(t *testing.T) {
 					resource.TestCheckResourceAttr("portkey_workspace.test", "usage_limits.0.credit_limit", "1000"),
 					resource.TestCheckResourceAttr("portkey_workspace.test", "usage_limits.0.alert_threshold", "800"),
 				),
+			},
+			// Re-apply the same config: no drift is allowed. Catches the case
+			// where Read after Update flips the trusted plan values back to a
+			// stale API response on the next refresh.
+			{
+				Config:   testAccWorkspaceResourceConfigWithUsageLimits(rName+"-upd", 1000, 800),
+				PlanOnly: true,
 			},
 			// Delete testing automatically occurs in TestCase
 		},
@@ -262,8 +274,9 @@ func TestAccWorkspaceResource_withRateLimits(t *testing.T) {
 		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
+			// Create with rate_limits
 			{
-				Config: testAccWorkspaceResourceConfigWithRateLimits(rName),
+				Config: testAccWorkspaceResourceConfigWithRateLimits(rName, 100),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrSet("portkey_workspace.test", "id"),
 					resource.TestCheckResourceAttr("portkey_workspace.test", "name", rName),
@@ -272,6 +285,24 @@ func TestAccWorkspaceResource_withRateLimits(t *testing.T) {
 					resource.TestCheckResourceAttr("portkey_workspace.test", "rate_limits.0.unit", "rpm"),
 					resource.TestCheckResourceAttr("portkey_workspace.test", "rate_limits.0.value", "100"),
 				),
+			},
+			// Update rate_limits — changes value. Same stale-echo risk as the
+			// usage_limits update path: the Portkey API can briefly return the
+			// prior value in the PUT response, which would have triggered
+			// "Provider produced inconsistent result after apply" before the
+			// Update handler started trusting the plan for rate_limits.
+			{
+				Config: testAccWorkspaceResourceConfigWithRateLimits(rName, 250),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("portkey_workspace.test", "rate_limits.0.value", "250"),
+				),
+			},
+			// Re-apply the same config: no drift allowed. Catches the case
+			// where Read after Update flips trusted plan values back to a
+			// stale API response on the next refresh.
+			{
+				Config:   testAccWorkspaceResourceConfigWithRateLimits(rName, 250),
+				PlanOnly: true,
 			},
 		},
 	})
@@ -295,7 +326,7 @@ resource "portkey_workspace" "test" {
 `, name, creditLimit, alertThreshold)
 }
 
-func testAccWorkspaceResourceConfigWithRateLimits(name string) string {
+func testAccWorkspaceResourceConfigWithRateLimits(name string, value int) string {
 	return fmt.Sprintf(`
 provider "portkey" {}
 
@@ -306,10 +337,10 @@ resource "portkey_workspace" "test" {
   rate_limits = [{
     type  = "requests"
     unit  = "rpm"
-    value = 100
+    value = %[2]d
   }]
 }
-`, name)
+`, name, value)
 }
 
 func testAccWorkspaceResourceConfigNoLimits(name string) string {
@@ -362,7 +393,7 @@ func TestAccWorkspaceResource_clearRateLimits(t *testing.T) {
 		Steps: []resource.TestStep{
 			// Step 1: Create with rate_limits
 			{
-				Config: testAccWorkspaceResourceConfigWithRateLimits(rName),
+				Config: testAccWorkspaceResourceConfigWithRateLimits(rName, 100),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("portkey_workspace.test", "rate_limits.#", "1"),
 					resource.TestCheckResourceAttr("portkey_workspace.test", "rate_limits.0.type", "requests"),
