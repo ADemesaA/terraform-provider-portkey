@@ -3,12 +3,12 @@
 page_title: "portkey_integration Resource - portkey"
 subcategory: ""
 description: |-
-  Manages a Portkey integration. Integrations connect Portkey to AI providers like OpenAI, Anthropic, Azure OpenAI, Azure AI Foundry, Google Vertex AI, and more.
+  Manages a Portkey integration. Integrations connect Portkey to AI providers like OpenAI, Anthropic, Azure, Google, etc.
 ---
 
 # portkey_integration (Resource)
 
-Manages a Portkey integration. Integrations connect Portkey to AI providers like OpenAI, Anthropic, Azure OpenAI, Azure AI Foundry, Google Vertex AI, and more.
+Manages a Portkey integration. Integrations connect Portkey to AI providers like OpenAI, Anthropic, Azure, Google, etc.
 
 ## Workspace-Level Integrations
 
